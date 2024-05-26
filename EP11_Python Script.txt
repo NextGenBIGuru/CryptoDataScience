@@ -1,0 +1,70 @@
+# 'dataset' holds the input data for this script
+import numpy as np
+import pandas as pd
+import networkx as nx
+
+crypto_price_NoNA = dataset.dropna(axis=1) # dropping na values columnwise
+log_returns = np.log(crypto_price_NoNA.iloc[:, 1:].shift(1)) - np.log(crypto_price_NoNA.iloc[:, 1:])
+return_correlation = log_returns.corr()
+
+distance = np.sqrt(2 * (1 - return_correlation))
+distance_graph = nx.Graph(distance)
+distance_graph_Simplified = nx.minimum_spanning_tree(distance_graph)
+
+degree_centrality = nx.degree_centrality(distance_graph_Simplified)
+betweenness_centrality = nx.betweenness_centrality(distance_graph_Simplified)
+
+distance_degree_criteria = {}
+node_with_largest_degree_centrality = max(dict(degree_centrality), key=dict(degree_centrality).get)
+for node in distance_graph_Simplified.nodes():
+    distance_degree_criteria[node] = nx.shortest_path_length(distance_graph_Simplified, node,
+                                                             node_with_largest_degree_centrality)
+    
+# distance on correlation criterion
+distance_correlation_criteria = {}
+sum_correlation = {}
+
+for node in distance_graph_Simplified.nodes():
+    neighbors = nx.neighbors(distance_graph_Simplified, node)
+    sum_correlation[node] = sum(return_correlation[node][neighbor] for neighbor in neighbors)
+
+node_with_highest_correlation = max(sum_correlation, key=sum_correlation.get)
+
+for node in distance_graph_Simplified.nodes():
+    distance_correlation_criteria[node] = nx.shortest_path_length(distance_graph_Simplified, node,
+                                                             node_with_highest_correlation)
+    
+# distance on distance criterion
+distance_distance_criteria = {}
+mean_distance = {}
+
+for node in distance_graph_Simplified.nodes():
+    nodes = list(distance_graph_Simplified.nodes())
+    nodes.remove(node)
+    distance_distance = [nx.shortest_path_length(distance_graph_Simplified, node, ns) for ns in nodes]
+    mean_distance[node] = np.mean(distance_distance)
+
+node_with_minimum_mean_distance = min(mean_distance, key=mean_distance.get)
+
+for node in distance_graph_Simplified.nodes():
+    distance_distance_criteria[node] = nx.shortest_path_length(distance_graph_Simplified, node,
+                                                             node_with_minimum_mean_distance)
+    
+
+
+    
+node_stats = pd.DataFrame.from_dict(dict(degree_centrality), orient='index', columns=['value'])
+node_stats.columns = ['degree_centrality']
+node_stats['betweenness_centrality'] = betweenness_centrality.values()
+node_stats['average_centrality'] = 0.5 * (node_stats['degree_centrality'] + node_stats['betweenness_centrality'])
+node_stats['distance_degree_criteria'] = distance_degree_criteria.values()
+node_stats['distance_correlation_criteria'] = distance_correlation_criteria.values()
+node_stats['distance_distance_criteria'] = distance_distance_criteria.values()
+node_stats['average_distance'] = (node_stats['distance_degree_criteria'] + node_stats['distance_correlation_criteria'] + node_stats['distance_distance_criteria']) / 3
+
+node_stats.reset_index(inplace=True)
+node_stats.rename(columns={'index': 'crypto'}, inplace=True)
+
+Central_Portfolio = node_stats.sort_values('average_centrality', ascending=False).head(3)
+
+Peripheral_Portfolio = node_stats.sort_values('average_distance', ascending=False).head(3)
